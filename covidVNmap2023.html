@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8" />
+
+    <title>Lab 7</title>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+        h3 {
+            color: blue;
+        }
+        .b {
+            font-weight: bold;
+        }
+        .i {
+            font-style: italic;
+        }
+		div.tooltip {
+			position: absolute;
+			text-align: center;
+			width: auto;
+			height: auto;
+			padding: 6px;
+			font: 15px sans-serif;
+			color: white;
+			background: rgb(57, 60, 63);
+			border: 5px;
+			border-radius: 8px;
+			pointer-events: none;
+			opacity: 0.9;
+		}
+
+    </style>
+  </head>
+
+  <body>
+
+    <h4 class="b">Data science and data visualization</h4>
+    <h4 class="i">Lab 7 – D3.js - GeoMapping</h4>
+    <p>This is all my own work. I did not copy the code from any other source.</p>
+
+    <script>
+        const height = 1000, width = 1000;
+
+        var svg = d3.select("body")
+        	.append("svg")
+            .attr("width", width)
+            .attr("height", height)
+		var g = svg.append("g");
+
+		var zoom = d3.zoom()
+            .scaleExtent([1, 40])
+            .translateExtent([
+                [0, 0],
+                [width, height]
+            ])
+            .extent([
+                [0, 0],
+                [width, height]
+            ]).on("zoom", (event) => g.attr("transform", event.transform));
+  		svg.call(zoom);
+
+		var projection = d3.geoMercator()
+            .center([105, 16])
+            .scale([2500])
+            .translate([width / 2, height / 2]);
+		var path = d3.geoPath()
+			.projection(projection);
+		
+			
+		var color = d3.scaleSequential(t => d3.interpolateRdPu(1-t));
+		var colorScale = d3.scaleQuantize()
+			.range(d3.quantize(color, 50));
+
+        var tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+		console.log("Starting data load...");
+
+		Promise.all([
+			d3.csv("vnprovince23.csv"), 
+			d3.json("https://raw.githubusercontent.com/TungTh/tungth.github.io/master/data/vn-provinces.json")
+		])
+		.then(([data, json]) => {
+			data.forEach(d => {
+				d.ma = parseFloat(d.ma);
+				d.confirmed = +d.confirmed;
+			});
+
+			colorScale.domain([
+				d3.min(data, function(d) { return d.confirmed; }), 
+				d3.max(data, function(d) { return d.confirmed; })
+			]);
+
+			console.log("Color domain:", colorScale.domain());
+
+			data.forEach(d => {
+				const ma = d.ma;
+				const val = d.confirmed;
+				const name = d.province;
+				const feat = json.features.find(f => parseFloat(f.properties.Ma || f.properties.ma) === ma);
+				if (feat) {
+					feat.properties.value = val;
+					feat.properties.province = name;
+				}
+			});
+
+			g.selectAll("path")
+			.data(json.features)
+			.enter()
+			.append("path")
+			.join("path")
+			.on("click", clicked)
+			.attr("d", path)
+			.style("fill", d => (d.properties.value > 0 ? colorScale(d.properties.value) : "#ccc"))
+
+			.on("mouseover", (event, d) => {
+				d3.select(event.currentTarget)
+				.transition()
+				.duration(200)
+				.style("opacity", 1)
+				.style("stroke", "yellow")
+				.attr("stroke-width", 2);
+				tooltip
+				.style("opacity", 0.9)
+				.style("stroke", "black")
+				.html(
+					`
+					<b>${d.properties.province || 'Unknown'}</b>
+					<br>
+					Cases: <b>${d.properties.value || 0}</b>
+					`
+				);
+			})
+			.on("mousemove", (event) => {
+          		tooltip
+				.style("top", (event.pageY)+"px")
+				.style("left", (event.pageX+10)+"px");
+        	})
+        	.on("mouseout", (event) => {
+          		d3.select(event.currentTarget)
+				.transition()
+				.duration(200)
+				.style("stroke","transparent");
+          		tooltip
+				.style("opacity",0);
+        	});
+
+			svg.call(zoom);
+
+			function reset() {
+				states.transition().style("fill", null);
+				svg.transition().duration(750).call(
+				zoom.transform,
+				d3.zoomIdentity,
+				d3.zoomTransform(svg.node()).invert([width / 2, height / 2])
+				);
+			}
+
+			function clicked(event, d) {
+				const [[x0, y0], [x1, y1]] = path.bounds(d);
+				event.stopPropagation();
+				states.transition().style("fill", null);
+				d3.select(this).transition().style("fill", "red");
+				svg.transition().duration(750).call(
+				zoom.transform,
+				d3.zoomIdentity
+					.translate(width / 2, height / 2)
+					.scale(Math.min(8, 0.9 / Math.max((x1 - x0) / width, (y1 - y0) / height)))
+					.translate(-(x0 + x1) / 2, -(y0 + y1) / 2),
+				d3.pointer(event, svg.node())
+				);
+			}
+			function zoomed(event) {
+				const {transform} = event;
+				g.attr("transform", transform);
+				g.attr("stroke-width", 1 / transform.k);
+			}
+		}).catch(err => console.error(err));
+
+    </script>
+
+  </body>
+</html>
